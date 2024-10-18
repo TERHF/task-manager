@@ -1,0 +1,238 @@
+### Task Management Application Code for GitHub
+
+#### 1. Backend - Server and Database
+
+**Folder Structure:**
+```
+backend/
+  |- controllers/
+  |- models/
+  |- routes/
+  |- config/
+  |- index.js
+  |- package.json
+```
+
+**Steps to Implement:**
+
+- **Initialize Node.js project:**
+  ```bash
+  mkdir backend && cd backend
+  npm init -y
+  npm install express mongoose jsonwebtoken bcryptjs dotenv cors
+  npm install --save-dev jest supertest
+  ```
+
+- **Database Setup:** Using MongoDB (hosted locally or using a service like MongoDB Atlas).
+
+  **File: config/db.js**
+  ```javascript
+  const mongoose = require('mongoose');
+  const connectDB = async () => {
+    try {
+      await mongoose.connect(process.env.MONGO_URI, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+      });
+      console.log('MongoDB Connected');
+    } catch (error) {
+      console.error(error.message);
+      process.exit(1);
+    }
+  };
+  module.exports = connectDB;
+  ```
+
+- **Models:** Defining User and Task models.
+
+  **File: models/User.js**
+  ```javascript
+  const mongoose = require('mongoose');
+  const bcrypt = require('bcryptjs');
+
+  const UserSchema = new mongoose.Schema({
+    username: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+  });
+
+  UserSchema.pre('save', async function (next) {
+    if (!this.isModified('password')) return next();
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  });
+
+  module.exports = mongoose.model('User', UserSchema);
+  ```
+
+  **File: models/Task.js**
+  ```javascript
+  const mongoose = require('mongoose');
+
+  const TaskSchema = new mongoose.Schema({
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    title: { type: String, required: true },
+    description: { type: String },
+    due_date: { type: Date },
+    status: { type: String, default: 'Pending' },
+    category: { type: String },
+  });
+
+  module.exports = mongoose.model('Task', TaskSchema);
+  ```
+
+- **Routes and Controllers:**
+
+  **File: routes/taskRoutes.js**
+  ```javascript
+  const express = require('express');
+  const { protect } = require('../middleware/authMiddleware');
+  const { createTask, getTasks, updateTask, deleteTask } = require('../controllers/taskController');
+  const router = express.Router();
+
+  router.route('/').get(protect, getTasks).post(protect, createTask);
+  router.route('/:id').put(protect, updateTask).delete(protect, deleteTask);
+
+  module.exports = router;
+  ```
+
+  **File: controllers/taskController.js**
+  ```javascript
+  const Task = require('../models/Task');
+
+  // Create Task
+  const createTask = async (req, res) => {
+    const { title, description, due_date, category } = req.body;
+    const task = new Task({
+      user: req.user.id,
+      title,
+      description,
+      due_date,
+      category,
+    });
+    await task.save();
+    res.status(201).json(task);
+  };
+
+  // Get Tasks
+  const getTasks = async (req, res) => {
+    const tasks = await Task.find({ user: req.user.id });
+    res.status(200).json(tasks);
+  };
+
+  module.exports = { createTask, getTasks, updateTask, deleteTask };
+  ```
+
+#### 2. Frontend - User Interface (UI)
+
+**Folder Structure:**
+```
+frontend/
+  |- index.html
+  |- css/
+      |- styles.css
+  |- js/
+      |- app.js
+```
+
+- **HTML Layout: index.html**
+  ```html
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="css/styles.css">
+    <title>Task Management App</title>
+  </head>
+  <body>
+    <div id="app">
+      <h1>Task Management</h1>
+      <div id="task-form">
+        <input type="text" id="task-title" placeholder="Task Title">
+        <input type="date" id="due-date">
+        <button id="add-task">Add Task</button>
+      </div>
+      <div id="tasks-list"></div>
+    </div>
+    <script src="js/app.js"></script>
+  </body>
+  </html>
+  ```
+
+- **CSS Styles: css/styles.css**
+  ```css
+  body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+    color: #333;
+  }
+
+  #app {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  }
+
+  #task-form {
+    margin-bottom: 20px;
+  }
+
+  #tasks-list {
+    list-style: none;
+    padding: 0;
+  }
+  ```
+
+- **JavaScript App Logic: js/app.js**
+  ```javascript
+  document.getElementById('add-task').addEventListener('click', async () => {
+    const title = document.getElementById('task-title').value;
+    const dueDate = document.getElementById('due-date').value;
+
+    try {
+      const response = await fetch('http://localhost:5000/api/tasks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + localStorage.getItem('token'),
+        },
+        body: JSON.stringify({ title, due_date: dueDate }),
+      });
+      const data = await response.json();
+      console.log('Task added:', data);
+    } catch (error) {
+      console.error('Error adding task:', error);
+    }
+  });
+  ```
+
+#### 3. Authentication
+- **Authentication Logic:** Implemented using JSON Web Tokens (JWT).
+- On the client side, save the token to `localStorage` after login, and attach it to all protected API calls as an authorization header.
+
+#### 4. Testing
+- Use **Jest** for unit testing backend functions and API endpoints.
+- Example of testing the `createTask` function:
+  ```javascript
+  const request = require('supertest');
+  const app = require('../index');
+
+  describe('Task Management API', () => {
+    it('should create a new task', async () => {
+      const res = await request(app)
+        .post('/api/tasks')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ title: 'Test Task', due_date: '2024-12-31' });
+      expect(res.statusCode).toEqual(201);
+      expect(res.body).toHaveProperty('_id');
+    });
+  });
+  ```
+
+### Additional Notes
+- Set up environment variables (`.env` file) to store sensitive information, like `MONGO_URI` and `JWT_SECRET`.
+- The backend runs on port `5000` while the frontend can be served via any static server (e.g., using `http-server` or as part of a modern framework).
